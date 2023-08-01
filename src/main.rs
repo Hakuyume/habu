@@ -1,12 +1,14 @@
 use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
 use clap::Parser;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha224};
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
 use std::fs;
+use std::fs::File;
 use std::iter;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
@@ -27,6 +29,10 @@ enum Command {
         #[clap(allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    Generate {
+        #[clap(long)]
+        pyright: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -41,17 +47,17 @@ fn main() -> anyhow::Result<()> {
         .find(|dir| dir.join(CONFIG_BASENAME).exists())
         .ok_or_else(|| anyhow::format_err!("{} not found", CONFIG_BASENAME))?;
 
-    let name = BASE64_URL_SAFE_NO_PAD.encode(Sha224::digest(
+    let venvs_dir = dirs::data_dir()
+        .ok_or_else(|| anyhow::format_err!("data directory not found"))?
+        .join(env!("CARGO_BIN_NAME"))
+        .join("venvs");
+    let venv_name = BASE64_URL_SAFE_NO_PAD.encode(Sha224::digest(
         working_dir
             .join(CONFIG_BASENAME)
             .to_string_lossy()
             .as_bytes(),
     ));
-    let venv = dirs::data_dir()
-        .ok_or_else(|| anyhow::format_err!("data directory not found"))?
-        .join(env!("CARGO_BIN_NAME"))
-        .join("venvs")
-        .join(name);
+    let venv_dir = venvs_dir.join(&venv_name);
 
     match opts.command {
         Command::Install { clean } => {
@@ -66,7 +72,7 @@ fn main() -> anyhow::Result<()> {
                     .arg(&config.python),
             )?;
             if clean {
-                fs::remove_dir_all(&venv)?;
+                fs::remove_dir_all(&venv_dir)?;
             }
             exec(
                 process::Command::new("pyenv")
@@ -74,10 +80,10 @@ fn main() -> anyhow::Result<()> {
                     .arg("python")
                     .arg("-m")
                     .arg("venv")
-                    .arg(&venv)
+                    .arg(&venv_dir)
                     .env("PYENV_VERSION", &config.python),
             )?;
-            let mut command = process::Command::new(venv.join("bin").join("pip"));
+            let mut command = process::Command::new(venv_dir.join("bin").join("pip"));
             command.arg("install");
             if let Some(index_url) = &config.index_url {
                 command.arg("--index-url").arg(index_url);
@@ -109,19 +115,38 @@ fn main() -> anyhow::Result<()> {
             exec(&mut command)?;
         }
         Command::Run { args } => {
-            if !venv.join("bin").exists() {
+            if !venv_dir.join("bin").exists() {
                 anyhow::bail!("venv not installed");
             }
             exec(
                 process::Command::new(&args[0]).args(&args[1..]).env(
                     "PATH",
                     env::join_paths(
-                        [venv.join("bin")]
+                        [venv_dir.join("bin")]
                             .into_iter()
                             .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
                     )?,
                 ),
             )?;
+        }
+        Command::Generate { pyright } => {
+            if pyright {
+                #[derive(Serialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Config<'a> {
+                    venv_path: &'a Path,
+                    venv: &'a str,
+                }
+
+                serde_json::to_writer(
+                    File::create(working_dir.join("pyrightconfig.json"))?,
+                    &Config {
+                        venv_path: &venvs_dir,
+                        venv: &venv_name,
+                    },
+                )?;
+                tracing::info!("{:?}", working_dir.join("pyrightconfig.json"));
+            }
         }
     }
     Ok(())
