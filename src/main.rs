@@ -20,7 +20,10 @@ struct Opts {
 
 #[derive(Parser)]
 enum Command {
-    Install,
+    Install {
+        #[clap(long)]
+        clean: bool,
+    },
     Run {
         #[clap(allow_hyphen_values = true)]
         args: Vec<String>,
@@ -52,7 +55,7 @@ fn main() -> anyhow::Result<()> {
         .join(name);
 
     match opts.command {
-        Command::Install => {
+        Command::Install { clean } => {
             let config =
                 toml::from_str::<Config>(&fs::read_to_string(working_dir.join(CONFIG_BASENAME))?)?;
             tracing::debug!("config = {:#?}", config);
@@ -63,6 +66,9 @@ fn main() -> anyhow::Result<()> {
                     .arg("--skip-existing")
                     .arg(&config.python),
             )?;
+            if clean {
+                fs::remove_dir_all(&venv)?;
+            }
             exec(
                 process::Command::new("pyenv")
                     .arg("exec")
