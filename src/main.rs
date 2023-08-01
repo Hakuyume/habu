@@ -2,7 +2,6 @@ use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
 use clap::Parser;
 use serde::Deserialize;
 use sha2::{Digest, Sha224};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
@@ -78,30 +77,36 @@ fn main() -> anyhow::Result<()> {
                     .arg(&venv)
                     .env("PYENV_VERSION", &config.python),
             )?;
-            exec(config.packages.iter().fold(
-                process::Command::new(venv.join("bin").join("pip")).arg("install"),
-                |command, (name, package)| match package {
+            let mut command = process::Command::new(venv.join("bin").join("pip"));
+            command.arg("install");
+            if let Some(index_url) = &config.index_url {
+                command.arg("--index-url").arg(index_url);
+            }
+            for extra_index_url in &config.extra_index_urls {
+                command.arg("--extra-index-url").arg(extra_index_url);
+            }
+            for (name, package) in &config.packages {
+                match package {
                     Package::Index { version } => {
                         let mut requirement = name.to_owned();
                         if let Some(version) = version {
                             write!(&mut requirement, "{version}").unwrap();
                         }
-                        command.arg(requirement)
+                        command.arg(requirement);
                     }
                     Package::Local { path, editable } => {
-                        let path = if path.is_relative() {
-                            Cow::Owned(working_dir.join(path))
-                        } else {
-                            Cow::Borrowed(path)
-                        };
                         if *editable {
-                            command.arg("--editable").arg(path.as_ref())
-                        } else {
-                            command.arg(path.as_ref())
+                            command.arg("--editable");
                         }
+                        if path.is_relative() {
+                            command.arg(working_dir.join(path))
+                        } else {
+                            command.arg(path)
+                        };
                     }
-                },
-            ))?;
+                }
+            }
+            exec(&mut command)?;
         }
         Command::Run { args } => {
             if !venv.join("bin").exists() {
@@ -126,6 +131,9 @@ fn main() -> anyhow::Result<()> {
 #[derive(Debug, Deserialize)]
 struct Config {
     python: String,
+    index_url: Option<String>,
+    #[serde(default)]
+    extra_index_urls: Vec<String>,
     #[serde(default)]
     #[serde_as(as = "HashMap<_, serde_with::PickFirst<(_, serde_with::DisplayFromStr)>>")]
     packages: HashMap<String, Package>,
