@@ -83,36 +83,38 @@ fn main() -> anyhow::Result<()> {
                     .arg(&venv_dir)
                     .env("PYENV_VERSION", &config.python),
             )?;
-            let mut command = process::Command::new(venv_dir.join("bin").join("pip"));
-            command.arg("install");
-            if let Some(index_url) = &config.index_url {
-                command.arg("--index-url").arg(index_url);
-            }
-            for extra_index_url in &config.extra_index_urls {
-                command.arg("--extra-index-url").arg(extra_index_url);
-            }
-            for (name, package) in &config.packages {
-                match package {
-                    Package::Index { version } => {
-                        let mut requirement = name.to_owned();
-                        if let Some(version) = version {
-                            write!(&mut requirement, "{version}").unwrap();
+            if !config.packages.is_empty() {
+                let mut command = process::Command::new(venv_dir.join("bin").join("pip"));
+                command.arg("install");
+                if let Some(index_url) = &config.index_url {
+                    command.arg("--index-url").arg(index_url);
+                }
+                for extra_index_url in &config.extra_index_urls {
+                    command.arg("--extra-index-url").arg(extra_index_url);
+                }
+                for (name, package) in &config.packages {
+                    match package {
+                        Package::Index { version } => {
+                            let mut requirement = name.to_owned();
+                            if let Some(version) = version {
+                                write!(&mut requirement, "{version}").unwrap();
+                            }
+                            command.arg(requirement);
                         }
-                        command.arg(requirement);
-                    }
-                    Package::Local { path, editable } => {
-                        if *editable {
-                            command.arg("--editable");
+                        Package::Local { path, editable } => {
+                            if *editable {
+                                command.arg("--editable");
+                            }
+                            if path.is_relative() {
+                                command.arg(working_dir.join(path))
+                            } else {
+                                command.arg(path)
+                            };
                         }
-                        if path.is_relative() {
-                            command.arg(working_dir.join(path))
-                        } else {
-                            command.arg(path)
-                        };
                     }
                 }
+                exec(&mut command)?;
             }
-            exec(&mut command)?;
         }
         Command::Run { args } => {
             if !venv_dir.join("bin").exists() {
