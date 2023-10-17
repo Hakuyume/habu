@@ -92,6 +92,7 @@ impl<'de> Deserialize<'de> for Package {
                 #[derive(Deserialize)]
                 struct Inner {
                     #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
+                    #[serde(default)]
                     version: Option<pep440_rs::VersionSpecifiers>,
                     path: Option<PathBuf>,
                     editable: Option<bool>,
