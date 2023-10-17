@@ -1,17 +1,17 @@
+mod config;
+
 use base64::prelude::{Engine, BASE64_URL_SAFE_NO_PAD};
 use clap::Parser;
-use serde::{Deserialize, Serialize};
+use config::{Config, Package};
+use serde::Serialize;
 use sha2::{Digest, Sha224};
-use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::fs::File;
 use std::iter;
 use std::path::Path;
-use std::path::PathBuf;
 use std::process;
-use std::str::FromStr;
 
 #[derive(Parser)]
 struct Opts {
@@ -83,16 +83,16 @@ fn main() -> anyhow::Result<()> {
                     .arg(&venv_dir)
                     .env("PYENV_VERSION", &config.python),
             )?;
-            if !config.packages.is_empty() {
+            for step in config.steps.iter().filter(|step| !step.packages.is_empty()) {
                 let mut command = process::Command::new(venv_dir.join("bin").join("pip"));
                 command.arg("install");
-                if let Some(index_url) = &config.index_url {
+                if let Some(index_url) = &step.index_url {
                     command.arg("--index-url").arg(index_url);
                 }
-                for extra_index_url in &config.extra_index_urls {
+                for extra_index_url in &step.extra_index_urls {
                     command.arg("--extra-index-url").arg(extra_index_url);
                 }
-                for (name, package) in &config.packages {
+                for (name, package) in &step.packages {
                     match package {
                         Package::Index { version } => {
                             let mut requirement = name.to_owned();
@@ -101,7 +101,7 @@ fn main() -> anyhow::Result<()> {
                             }
                             command.arg(requirement);
                         }
-                        Package::Local { path, editable } => {
+                        Package::Path { path, editable } => {
                             if *editable {
                                 command.arg("--editable");
                             }
@@ -152,41 +152,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-#[serde_with::serde_as]
-#[derive(Debug, Deserialize)]
-struct Config {
-    python: String,
-    index_url: Option<String>,
-    #[serde(default)]
-    extra_index_urls: Vec<String>,
-    #[serde(default)]
-    #[serde_as(as = "HashMap<_, serde_with::PickFirst<(_, serde_with::DisplayFromStr)>>")]
-    packages: HashMap<String, Package>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields, untagged)]
-enum Package {
-    Index {
-        version: Option<pep440_rs::VersionSpecifiers>,
-    },
-    Local {
-        path: PathBuf,
-        #[serde(default)]
-        editable: bool,
-    },
-}
-
-impl FromStr for Package {
-    type Err = <pep440_rs::VersionSpecifiers as FromStr>::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::Index {
-            version: Some(s.parse()?),
-        })
-    }
 }
 
 #[tracing::instrument]
