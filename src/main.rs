@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         Command::Install { clean } => {
             let config =
                 toml::from_str::<Config>(&fs::read_to_string(working_dir.join(CONFIG_BASENAME))?)?;
-            tracing::debug!("config = {:#?}", config);
+            tracing::debug!(?config);
 
             exec(
                 process::Command::new("pyenv")
@@ -156,9 +156,8 @@ fn main() -> anyhow::Result<()> {
 
 #[tracing::instrument]
 fn exec(command: &mut process::Command) -> anyhow::Result<()> {
-    tracing::debug!("exec");
     let status = command.status()?;
-    tracing::debug!("status = {:?}", status);
+    tracing::debug!(?status);
     if !status.success() {
         anyhow::bail!("command failed");
     }
