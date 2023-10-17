@@ -1,16 +1,15 @@
 use serde::{de, Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-use std::iter;
 use std::path::PathBuf;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Config {
     pub(crate) python: String,
     pub(crate) steps: Vec<Step>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct Step {
     pub(crate) index_url: Option<String>,
     #[serde(default)]
@@ -35,7 +34,6 @@ impl<'de> Deserialize<'de> for Config {
     where
         D: Deserializer<'de>,
     {
-        #[serde_with::serde_as]
         #[derive(Deserialize)]
         struct Inner {
             python: String,
@@ -69,6 +67,41 @@ impl<'de> Deserialize<'de> for Package {
     where
         D: Deserializer<'de>,
     {
+        #[derive(Default, Deserialize)]
+        struct Inner {
+            version: Option<String>,
+            path: Option<PathBuf>,
+            editable: Option<bool>,
+        }
+        impl Inner {
+            fn into<E>(self) -> Result<Package, E>
+            where
+                E: de::Error,
+            {
+                match self {
+                    Self {
+                        version,
+                        path: None,
+                        editable: None,
+                    } => Ok(Package::Index {
+                        version: version
+                            .map(|version| version.parse())
+                            .transpose()
+                            .map_err(E::custom)?,
+                    }),
+                    Self {
+                        version: None,
+                        path: Some(path),
+                        editable,
+                    } => Ok(Package::Path {
+                        path,
+                        editable: editable.unwrap_or(false),
+                    }),
+                    _ => Err(E::custom("invalid combination of fields")),
+                }
+            }
+        }
+
         struct Visitor;
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = Package;
@@ -81,45 +114,24 @@ impl<'de> Deserialize<'de> for Package {
             where
                 E: de::Error,
             {
-                self.visit_map(de::value::MapDeserializer::new(iter::once(("version", v))))
+                Inner {
+                    version: Some(v.to_owned()),
+                    ..Default::default()
+                }
+                .into()
             }
 
             fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
             where
                 A: de::MapAccess<'de>,
             {
-                #[serde_with::serde_as]
-                #[derive(Deserialize)]
-                struct Inner {
-                    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
-                    #[serde(default)]
-                    version: Option<pep440_rs::VersionSpecifiers>,
-                    path: Option<PathBuf>,
-                    editable: Option<bool>,
-                }
-
-                let inner = Inner::deserialize(de::value::MapAccessDeserializer::new(map))?;
-                match inner {
-                    Inner {
-                        version,
-                        path: None,
-                        editable: None,
-                    } => Ok(Self::Value::Index { version }),
-                    Inner {
-                        version: None,
-                        path: Some(path),
-                        editable,
-                    } => Ok(Self::Value::Path {
-                        path,
-                        editable: editable.unwrap_or(false),
-                    }),
-                    _ => Err(<A::Error as de::Error>::custom(
-                        "invalid combination of fields",
-                    )),
-                }
+                Inner::deserialize(de::value::MapAccessDeserializer::new(map))?.into()
             }
         }
 
         deserializer.deserialize_any(Visitor)
     }
 }
+
+#[cfg(test)]
+mod tests;
