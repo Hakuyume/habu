@@ -47,24 +47,22 @@ fn main() -> anyhow::Result<()> {
         .find(|dir| dir.join(CONFIG_BASENAME).exists())
         .ok_or_else(|| anyhow::format_err!("{} not found", CONFIG_BASENAME))?;
 
+    let config = toml::from_str::<Config>(&fs::read_to_string(working_dir.join(CONFIG_BASENAME))?)?;
+    tracing::debug!(?config);
+
     let venvs_dir = dirs::data_dir()
         .ok_or_else(|| anyhow::format_err!("data directory not found"))?
         .join(env!("CARGO_BIN_NAME"))
         .join("venvs");
-    let venv_name = BASE64_URL_SAFE_NO_PAD.encode(Sha224::digest(
-        working_dir
-            .join(CONFIG_BASENAME)
-            .to_string_lossy()
-            .as_bytes(),
-    ));
+    let venv_name = BASE64_URL_SAFE_NO_PAD.encode(Sha224::digest(format!(
+        "{}-{}",
+        working_dir.join(CONFIG_BASENAME).display(),
+        config.python
+    )));
     let venv_dir = venvs_dir.join(&venv_name);
 
     match opts.command {
         Command::Install { clean } => {
-            let config =
-                toml::from_str::<Config>(&fs::read_to_string(working_dir.join(CONFIG_BASENAME))?)?;
-            tracing::debug!(?config);
-
             exec(
                 process::Command::new("pyenv")
                     .arg("install")
