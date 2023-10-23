@@ -11,6 +11,7 @@ pub(crate) struct Config {
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct Step {
+    pub(crate) proxy: Option<String>,
     pub(crate) index_url: Option<String>,
     #[serde(default)]
     pub(crate) extra_index_urls: Vec<String>,
@@ -50,6 +51,7 @@ impl<'de> Deserialize<'de> for Config {
         let mut inner = Inner::deserialize(deserializer)?;
         if !inner.packages.is_empty() {
             inner.steps.push(Step {
+                proxy: None,
                 index_url: inner.index_url,
                 extra_index_urls: inner.extra_index_urls,
                 packages: inner.packages,

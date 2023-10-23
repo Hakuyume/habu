@@ -84,6 +84,9 @@ fn main() -> anyhow::Result<()> {
             for step in config.steps.iter().filter(|step| !step.packages.is_empty()) {
                 let mut command = process::Command::new(venv_dir.join("bin").join("pip"));
                 command.arg("install");
+                if let Some(proxy) = &step.proxy {
+                    command.arg("--proxy").arg(proxy);
+                }
                 if let Some(index_url) = &step.index_url {
                     command.arg("--index-url").arg(index_url);
                 }
